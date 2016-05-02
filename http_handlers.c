@@ -33,12 +33,6 @@ void index_handler(http_rqst* rqst)
         if(!rqst) return;
         if(!rqst->connection) return;
 
-        //struct espconn* c = rqst->connection;
-
-
-        // Register Sent Callback
-        //espconn_regist_sentcb(c, http_dsc);
-
         http_rsp* rsp = (http_rsp*)zalloc(sizeof(http_rsp));
         rqst->rsp = rsp;
 
