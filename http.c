@@ -197,12 +197,53 @@ void http_dsc(void* arg)
 {
         struct espconn *c = (struct espconn *)arg;
 
-        espconn_disconnect(c);
-
         if(!c) return;
+
+        printf("HTTP Server: Disconnecting\n");
+
+        short i = 0;
+        http_rsp* rsp;
+        http_rqst* rqst;
 
         if(c->reverse)
         {
+                rqst = (http_rqst*)c->reverse;
+                rsp = rqst->rsp;
+                if(rsp)
+                {
+                        while(i < MAX_HEADERS)
+                        {
+                                if(rsp->headers[i].name)
+                                        free(rsp->headers[i].name);
+                                rsp->headers[i].name = NULL;
+
+                                if(rsp->headers[i].value)
+                                        free(rsp->headers[i].value);
+                                rsp->headers[i].value = NULL;
+
+                                i++;
+                        }
+
+                        i = 0;
+                        while(i < HTTP_RSP_BUF_LEN)
+                        {
+                                if(rsp->buffers[i].allocated)
+                                {
+                                        if(rsp->buffers[i].buff)
+                                                free(rsp->buffers[i].buff);
+                                }
+
+                                i++;
+                        }
+
+                        if(rsp->body)
+                                free(rsp->body);
+                        rsp->body = NULL;
+
+                        free(rsp);
+                        rsp = NULL;
+                }
+
                 free(c->reverse);
                 c->reverse = NULL;
         }

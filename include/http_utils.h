@@ -14,9 +14,10 @@
 #include <utils.h>
 
 
-#define MAX_HEADERS       (20)
+#define MAX_HEADERS       (16)
 #define HTTP_VER_LEN      (CONST_STRLEN(HTTP_VER))
 #define HTTP_EOL_LEN      (CONST_STRLEN(HTTP_EOL))
+#define HTTP_RSP_BUF_LEN  (32)
 
 enum http_req_type
 {
@@ -40,6 +41,22 @@ typedef struct {const u16 code; const char* const txt;} rsp_code;
 extern const rsp_code const rsp_codes[];
 
 
+// HTTP Response Structure
+// Holds info on a HTTP response
+typedef struct { char* buff; u16 len; u16 allocated;} buffer;
+typedef struct
+{
+       const rsp_code*       code;
+       header                headers[MAX_HEADERS];
+       buffer                buffers[HTTP_RSP_BUF_LEN];
+       u16                   curr_buff;    // When sending, callback use
+       u16                   reg_buff;
+       char*                 body;
+       u32                   body_length;
+       struct espconn*       connection;
+} http_rsp;
+
+
 // HTTP Request Structure
 // Holds info on a HTTP request
 typedef struct
@@ -50,19 +67,8 @@ typedef struct
        char*                 body;
        u32                   body_length;
        struct espconn*       connection;
+       http_rsp*             rsp;
 } http_rqst;
-
-
-// HTTP Response Structure
-// Holds info on a HTTP response
-typedef struct
-{
-       rsp_code*             code;
-       header                headers[MAX_HEADERS];
-       char*                 body;
-       u32                   body_length;
-       struct espconn*       connection;
-} http_rsp;
 
 
 
@@ -83,6 +89,24 @@ char* search_http_eol(char* buff, u16 len);
 char* search_space(char* buff, u16 len);
 
 char* get_rsp(http_rsp*);
+
+// Return a rsp_code const struct corresponding to the given number
+// Return NULL if code is not found
+const rsp_code* get_rsp_code(short code);
+
+// Send to client the given http response
+void send_response(http_rsp* rsp);
+
+// Add Header info (eg: Content-Length, 20)
+void http_add_rsp_header(http_rsp* rsp, char* name, char* value);
+
+// Add Buffer to send to http response, copy is 0 for false, true otherwise
+void http_add_rsp_buffer(http_rsp* rsp, const void* buff, u16 len, u16 copy);
+
+// Allocation failled, print message
+#define  ALLOC_ERROR() \
+                printf("HTTP Server: Memory Allocation Failed, %s:%d\n", \
+                        __FILE__, __LINE__)
 
 #endif // __HTTP_UTILS_H__
 

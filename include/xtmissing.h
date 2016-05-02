@@ -33,11 +33,11 @@ int ets_sprintf(char *str, const char *format, ...)
         __attribute__ ((format (__printf__, 2, 3)));
 
 #define printf os_printf
-int os_printf(const char *format, ...) 
+int os_printf(const char *format, ...)
         __attribute__ ((format (__printf__, 1, 2)));
 
-#define snprintf os_snprintf
-int os_snprintf(char *str, size_t size, const char *format, ...)
+#define snprintf ets_snprintf
+int ets_snprintf(char *str, size_t size, const char *format, ...)
         __attribute__ ((format (__printf__, 3, 4)));
 
 #define printf_plus os_printf_plus

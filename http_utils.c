@@ -8,6 +8,7 @@
 
 #include <http_utils.h>
 #include <http.h>
+#include <utils.h>
 
 
 // HTTP Status Code {code, txt}
@@ -49,6 +50,11 @@ void clean_path(char* path)
 
 
         tmp = (char*) malloc(strlen(path)+1);
+        if(!tmp)
+        {
+                ALLOC_ERROR();
+                return NULL;
+        }
 
         printf("HTTP Server: Clean Path %s\n", path);
 
@@ -171,8 +177,7 @@ char* get_rsp(http_rsp* rsp)
         buff = (char*) malloc(len);
         if(!buff)
         {
-                printf("HTTP Server: Memory Allocation Failed, %s:%d\n",
-                                __FILE__, __LINE__);
+                ALLOC_ERROR();
                 return NULL;
         }
 
@@ -223,4 +228,245 @@ char* get_rsp(http_rsp* rsp)
         return buff;
 }
 
+
+
+const rsp_code* get_rsp_code(short code)
+{
+        short i = 0;
+        while(rsp_codes[i].code)
+        {
+                if(rsp_codes[i].code == code)
+                        return &rsp_codes[i];
+                i++;
+        }
+        return NULL;
+}
+
+void disco_callback(void* arg)
+{
+        printf("Diso Callback/n");
+        espconn_disconnect(arg);
+}
+
+void more_sent_callback(void* arg)
+{
+        printf("More Callback\n");
+        struct espconn* c = (struct espconn*) arg;
+        if(!c) return;
+        http_rsp* rsp = ((http_rqst*) c->reverse)->rsp;
+        if(!rsp) return;
+
+        u16 curr = rsp->curr_buff + 1;
+        if(curr >= HTTP_RSP_BUF_LEN) return;
+
+        if(!rsp->buffers[curr].buff || !rsp->buffers[curr].len)
+        {
+                printf("Disconnect with curr = %d, buff=0x%p, len=%d!!!\n",
+                                curr, rsp->buffers[curr].buff, rsp->buffers[curr].len);
+                printf("RSP pointer: 0x%p\n", rsp);
+                espconn_disconnect(arg);
+        }
+        else
+        {
+                ++rsp->curr_buff;
+                if(rsp->reg_buff < curr+1)
+                {
+                        printf("Register Disco A\n");
+                        espconn_regist_sentcb(c,
+                                disco_callback);
+                }
+                else
+                {
+                        printf("Register More Callback\n");
+                        espconn_regist_sentcb(c,
+                                        more_sent_callback);
+                }
+
+                printf("Send Data B\n");
+                espconn_sent(c, (u8*)rsp->buffers[curr].buff,
+                                rsp->buffers[curr].len);
+        }
+}
+
+void send_response(http_rsp* rsp)
+{
+        if(!rsp) return;
+        if(!rsp->connection) return;
+        if(!rsp->code) return;
+
+        printf("HTTP Server: Sending Response.\n");
+
+        struct espconn* c = rsp->connection;
+        u16 i = 0;
+
+        http_add_rsp_buffer(rsp, HTTP_VER, HTTP_VER_LEN, 0);
+        http_add_rsp_buffer(rsp, " ", 1, 0);
+        http_add_rsp_buffer(rsp, rsp->code->txt, strlen(rsp->code->txt), 0);
+        http_add_rsp_buffer(rsp, HTTP_EOL, HTTP_EOL_LEN, 0);
+
+        while(i < MAX_HEADERS)
+        {
+                if(!rsp->headers[i].name) break;
+                if(!rsp->headers[i].value) break;
+
+                http_add_rsp_buffer(rsp, rsp->headers[i].name,
+                                strlen(rsp->headers[i].name), 0);
+
+                http_add_rsp_buffer(rsp, ": ", 2, 0);
+
+                http_add_rsp_buffer(rsp, rsp->headers[i].value,
+                                strlen(rsp->headers[i].value), 0);
+
+                http_add_rsp_buffer(rsp, HTTP_EOL, HTTP_EOL_LEN, 0);
+
+                i++;
+        }
+
+        http_add_rsp_buffer(rsp, HTTP_EOL, HTTP_EOL_LEN, 0);
+        http_add_rsp_buffer(rsp, rsp->body, rsp->body_length, 0);
+
+        // Start sending first buffer
+        espconn_regist_sentcb(c, more_sent_callback);
+        espconn_sent(c, (u8*)rsp->buffers[0].buff, rsp->buffers[0].len);
+
+
+#if 0   // Calculate buff length, copy and send in one shot
+        // Get total size of the message
+        u32 len = 0;
+        short code_txt_len = strlen(rsp->code->txt);
+        len += HTTP_VER_LEN + 1 + code_txt_len + HTTP_EOL_LEN;
+        while(i < MAX_HEADERS)
+        {
+                if(!rsp->headers[i].name) break;
+                if(!rsp->headers[i].value) break;
+
+                len += strlen(rsp->headers[i].name);
+                len += strlen(rsp->headers[i].value);
+                len += 2 + HTTP_EOL_LEN; // 2 = ": "
+
+                i++;
+        }
+
+        len += HTTP_EOL_LEN;
+        len += rsp->body_length;
+
+        // Allocate Buffer
+        char* buff = (char*)malloc(len);
+        char* curr = buff;
+        if(!buff)
+        {
+                ALLOC_ERROR();
+                return;
+        }
+
+        // Copy data to buffer
+        memcpy(curr, HTTP_VER, HTTP_VER_LEN);
+        curr += HTTP_VER_LEN;
+        *curr++ = ' ';
+        memcpy(curr, rsp->code->txt, code_txt_len);
+        curr += code_txt_len;
+        memcpy(curr, HTTP_EOL, HTTP_EOL_LEN);
+        curr +=  HTTP_EOL_LEN;
+
+        u16 name_len, val_len;
+        i = 0;
+        while(i < MAX_HEADERS)
+        {
+                if(!rsp->headers[i].value) break;
+                if(!rsp->headers[i].name) break;
+
+                name_len = strlen(rsp->headers[i].name);
+                val_len = strlen(rsp->headers[i].value);
+
+                memcpy(curr, rsp->headers[i].name, name_len);
+                curr += name_len;
+
+                memcpy(curr, ": ", 2);
+                curr += 2;
+
+                memcpy(curr, rsp->headers[i].value, val_len);
+                curr += val_len;
+
+                memcpy(curr, HTTP_EOL, HTTP_EOL_LEN);
+                curr +=  HTTP_EOL_LEN;
+
+                i++;
+        }
+
+        memcpy(curr, HTTP_EOL, HTTP_EOL_LEN);
+        curr +=  HTTP_EOL_LEN;
+
+        memcpy(curr, rsp->body, rsp->body_length);
+
+        // Send buffer
+        printf("HTTP Server: Sending Data\n");
+        espconn_regist_sentcb(c, disco_callback);
+        espconn_sent(c, (u8*)buff, len);
+        // TODO: buff MUST BE FREE
+#endif
+}
+
+
+void http_add_rsp_header(http_rsp* rsp, char* name, char* value)
+{
+        if(!rsp || !name || !value) return;
+
+        u16 name_len = strlen(name);
+        u16 val_len = strlen(value);
+
+        if(!val_len || !name_len) return;
+        name_len++;
+        val_len++;
+
+        u16 i = 0;
+        while(i < MAX_HEADERS)
+        {
+                if(!rsp->headers[i].name && !rsp->headers[i].value)
+                {
+                        rsp->headers[i].name = (char*)malloc(name_len);
+                        rsp->headers[i].value = (char*)malloc(val_len);
+                        if(!rsp->headers[i].name || !rsp->headers[i].value)
+                        {
+                                ALLOC_ERROR();
+                                break;
+                        }
+                        memcpy(rsp->headers[i].name, name, name_len);
+                        memcpy(rsp->headers[i].value, value, val_len);
+                        break;
+                }
+                i++;
+        }
+}
+
+
+
+void http_add_rsp_buffer(http_rsp* rsp, const void* buff, u16 len, u16 copy)
+{
+        if(!rsp || !buff || !len) return;
+
+        u16 i = 0;
+        while(rsp->buffers[i].buff && i < HTTP_RSP_BUF_LEN) i++;
+
+        if(i >= HTTP_RSP_BUF_LEN) return;  // No more space
+
+        printf("Add to buffer %d: 0x%p len %d\n", i, buff, len);
+        printf("RSP pointer: 0x%p\n", rsp);
+
+        if(!copy)
+        {
+                rsp->buffers[i].buff = (char*)buff;
+                rsp->buffers[i].len = len;
+                rsp->buffers[i].allocated = 0;
+                rsp->reg_buff++;
+        }
+        else
+        {
+                rsp->buffers[i].buff = malloc(len);
+                if(!rsp->buffers[i].buff) return;
+                memcpy(rsp->buffers[i].buff, buff, len);
+                rsp->buffers[i].len = len;
+                rsp->buffers[i].allocated = 1;
+                rsp->reg_buff++;
+        }
+}
 
