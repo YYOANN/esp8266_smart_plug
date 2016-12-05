@@ -53,7 +53,6 @@ void clean_path(char* path)
         if(!tmp)
         {
                 ALLOC_ERROR();
-                return NULL;
         }
 
         printf("HTTP Server: Clean Path %s\n", path);

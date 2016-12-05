@@ -32,13 +32,13 @@ void http_parse_header_fields(http_rqst* rqst, char* buff, u16 len);
 
 
 // Receive Callback
-void ICACHE_FLASH_ATTR http_rcv(void *arg, char *buff, unsigned short len);
+void http_rcv(void *arg, char *buff, unsigned short len);
 
 // Disconnection callback
 void http_dsc(void* arg);
 
 // HTTP Server Connection Callback
-void ICACHE_FLASH_ATTR http_server(void *arg);
+void http_server(void *arg);
 
 
 #endif   // __HTTP_H__

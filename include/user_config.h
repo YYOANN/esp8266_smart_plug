@@ -9,6 +9,7 @@
 #ifndef __USER_CONFIG_H_
 #define __USER_CONFIG_H_
 
+#define ICACHE_FLASH 1
 
 #include <user_interface.h>
 #include <c_types.h>

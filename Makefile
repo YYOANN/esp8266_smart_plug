@@ -3,7 +3,7 @@
 # Date: 2016 04 18
 # Copyright (c) 2016, Yoann Mailland
 # Info: Makefile to build and flash EPS8622
- 
+
 
 
 TARGET		:= image.elf
@@ -12,16 +12,18 @@ FW_FILE_1	:= 0x00000.bin
 FW_FILE_2	:= 0x40000.bin
 
 
-all		: $(TARGET)
+all		: $(LIB_DRV) $(LIB_SPIFFS) $(TARGET) $(FW_FILE_1) $(FW_FILE_2)
 driver		: $(LIB_DRV)
 firmware	: $(FW_FILE_1) $(FW_FILE_2)
+elf		: $(TARGET)
 
 
 SRC		:= main.c http.c http_handlers.c http_utils.c
 LIB_DRV_SRC	:= gpio16.c hw_timer.c i2c_master.c key.c spi.c spi_overlap.c uart.c
 INCLUDE		:= ./include
 LIBS		:= c gcc hal phy pp net80211 lwip wpa main json upgrade ssl
-DRV_LIB		:= driver	# WARN: depends of the name of the lib
+DRV_LIB		:= $(LIB_DRV:lib%.a=%)
+SPIFFS_LIB	:= $(LIB_SPIFFS:lib%.a=%)
 LD_SCRIPT	:= eagle.app.v6.ld
 OBJ_DIR		:= obj
 
@@ -29,28 +31,30 @@ OBJ_DIR		:= obj
 
 
 SDK_DIR		:= [SDK_PATH]/esp-open-sdk
-SDK		:= $(SDK_DIR)/esp_iot_sdk_v1.4.0
+SDK		:= $(SDK_DIR)/sdk/
 FW_TOOL		:= [ESPTOOL_CK_PATH]/esptool
 ESPTOOL_PY	:= $(SDK_DIR)/esptool/esptool.py
 PORT		:= /dev/ttyUSB0
 BD_RATE		:= 115200
 
 
-XT_GCCLIB	:= $(SDK_DIR)/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/
+XT_GCCLIB	:= $(SDK_DIR)/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.5/
 XT_CLIB		:= $(SDK_DIR)/xtensa-lx106-elf/xtensa-lx106-elf/sysroot/lib/
 XT_LIB		:= $(SDK_DIR)/xtensa-lx106-elf/xtensa-lx106-elf/sysroot/usr/lib/
+SDK_LIB		:= $(SDK)/lib/
 XT_SCRIPT_DIR	:= $(SDK)/ld/
-LIB_DRV_PATH	:= ./
+LIB_DRV_PATH	:= $(PWD)
 CROSS_COMPILE	:= $(SDK_DIR)/xtensa-lx106-elf/bin/xtensa-lx106-elf-
 
 
 CC		:= $(CROSS_COMPILE)gcc
 LD		:= $(CROSS_COMPILE)ld
 AR		:= $(CROSS_COMPILE)ar
+OBJCOPY		:= $(CROSS_COMPILE)objcopy
 
 
 LIBS		:= $(addprefix -l, $(LIBS))
-DRV_LIB		:= $(addprefix -l, $(DRV_LIB))
+DRV_LIB_FL	:= $(addprefix -l, $(DRV_LIB))
 INCLUDE		:= $(addprefix -I, $(INCLUDE))
 
 LIB_DRV_OBJ_	:= $(patsubst %.c, %.o, $(LIB_DRV_SRC))
@@ -79,20 +83,27 @@ LDFLAGS		:=\
 		-flto \
 		-u call_user_start \
 		-static \
+		-L$(PWD) \
 		-L$(XT_CLIB) \
 		-L$(XT_GCCLIB) \
 		-L$(XT_LIB) \
+		-L$(SDK_LIB) \
 		-L$(XT_SCRIPT_DIR) \
-		-L$(LIB_DRV_PATH) \
 		-T$(LD_SCRIPT)
 
 
+SPIFFS_CFLAGS = \
+-Wall -Wno-format-y2k -W -Wstrict-prototypes -Wmissing-prototypes \
+-Wpointer-arith -Wreturn-type -Wcast-qual -Wwrite-strings -Wswitch \
+-Wshadow -Wcast-align -Wchar-subscripts -Winline -Wnested-externs\
+-Wredundant-decls
 
 # Firmware: sections to copy
 FW_FILE_1_ARGS	:= -bs .text -bs .data -bs .rodata
 FW_FILE_2_ARGS	:= -es .irom0.text
 
-
+# Move code to falsh to save memory
+MOVE_TO_FLASH	:= $(OBJCOPY) --rename-section .text=.irom0.text --rename-section .literal=.irom0.literal
 
 # BUILD APP
 $(OBJ): $(SRC)
@@ -102,7 +113,9 @@ $(OBJ): $(SRC)
 
 # LINK APP
 $(TARGET): $(OBJ)
-	$(LD) $(LDFLAGS) --start-group $(LIBS) --end-group $^ -o $@ $(DRV_LIB)
+	$(foreach OBJ_FILE, $^, \
+		$(MOVE_TO_FLASH) $(OBJ_FILE);)
+	$(LD) $(LDFLAGS) --start-group $(LIBS) --end-group $^ -o $@ $(DRV_LIB_FL)
 
 
 # BUILD DRIVER
@@ -130,7 +143,7 @@ burn: $(FW_FILE_1) $(FW_FILE_2)
 
 
 clean :
-	rm -rf $(TARGET) 
+	rm -rf $(TARGET)
 	rm -rf $(OBJ)
 	rm -rf $(FW_FILE_1)
 	rm -rf $(FW_FILE_2)
@@ -139,5 +152,9 @@ clean-driver:
 	rm -rf $(LIB_DRV)
 	rm -rf $(LIB_DRV_OBJ)
 
+clean-spiffs:
+	rm -rf $(LIB_SPIFFS)
+	rm -rf $(LIB_SPIFFS_OBJ)
 
-clean-all: clean clean-driver
+clean-all: clean clean-driver clean-spiffs
+
