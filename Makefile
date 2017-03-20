@@ -3,6 +3,7 @@
 # Date: 2016 04 18
 # Copyright (c) 2016, Yoann Mailland
 # Info: Makefile to build and flash EPS8622
+# VIM: set shiftwidth=8 tabstop=8 noexpandtab
 
 
 
